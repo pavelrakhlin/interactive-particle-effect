@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ethereal Particle Hero</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #ffffff; /* Deep dark background like Antigravity */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            perspective: 1000px; /* Enable 3D perspective */
+        }
+
+        canvas {
+            display: block;
+            transform-style: preserve-3d;
+            transition: transform 0.1s ease-out; /* Smooth tilt */
+        }
+
+        .hero-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            text-align: center;
+            pointer-events: none; /* Let clicks pass through to the canvas */
+            z-index: 1;
+        }
+
+        h1 {
+            font-size: 4rem;
+            font-weight: 200;
+            letter-spacing: -1px;
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        p {
+            font-weight: 300;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="particleCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('particleCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let particles = [];
+        const mouse = { x: null, y: null, radius: 112.5 }; // Interaction radius
+
+        // 1. Setup Canvas Size
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initParticles();
+        }
+
+        window.addEventListener('resize', resize);
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.x;
+            mouse.y = e.y;
+            
+            // Canvas Tilt Effect
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            const maxTilt = 6.25; // Maximum tilt in degrees (increased by 25%)
+            
+            // Calculate tilt based on cursor position relative to center
+            // Y-axis rotation follows X position (left/right tilt)
+            // X-axis rotation follows Y position (up/down tilt)
+            const rotateY = ((e.clientX - centerX) / centerX) * maxTilt;
+            const rotateX = -((e.clientY - centerY) / centerY) * maxTilt;
+
+            canvas.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+        });
+
+        // 2. Particle Blueprint
+        class Particle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.baseX = x; // The "home" position
+                this.baseY = y;
+                this.size = 0.75; // Uniform size (reduced by 25% from 1)
+                this.density = (Math.random() * 10) + 1; // Lower density for subtle ripple
+            }
+
+            draw() {
+                // Radial rainbow gradient: hue based on distance from mouse
+                const mx = mouse.x ?? canvas.width / 2;
+                const my = mouse.y ?? canvas.height / 2;
+                const dist = Math.sqrt((mx - this.x) ** 2 + (my - this.y) ** 2);
+                const maxDist = Math.sqrt(canvas.width ** 2 + canvas.height ** 2);
+                const hue = (dist / maxDist) * 360 % 360;
+                //ctx.fillStyle = `hsla(${hue}, 100%, 75%, 0.8)`;
+               // ctx.shadowColor = `hsl(${hue}, 100%, 75%)`;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            update() {
+                // Calculate distance between mouse and particle
+                let dx = mouse.x - this.x;
+                let dy = mouse.y - this.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // Pushing logic (Repulsion)
+                if (distance < mouse.radius) {
+                    let forceDirectionX = dx / distance;
+                    let forceDirectionY = dy / distance;
+                    let force = (mouse.radius - distance) / mouse.radius;
+                    let directionX = forceDirectionX * force * this.density;
+                    let directionY = forceDirectionY * force * this.density;
+                    
+                    this.x -= directionX;
+                    this.y -= directionY;
+                } else {
+                    // Return logic (Spring back to home)
+                    if (this.x !== this.baseX) {
+                        let dx = this.x - this.baseX;
+                        this.x -= dx / 25; // Slower, fluid return for ripple effect
+                    }
+                    if (this.y !== this.baseY) {
+                        let dy = this.y - this.baseY;
+                        this.y -= dy / 25;
+                    }
+                }
+            }
+        }
+
+        // 3. Populate System
+        function initParticles() {
+            particles = [];
+            // Create a grid of particles
+            const spacing = 20; // Uniform spacing
+            for (let y = 0; y < canvas.height; y += spacing) {
+                for (let x = 0; x < canvas.width; x += spacing) {
+                    particles.push(new Particle(x, y));
+                }
+            }
+        }
+
+        // 4. Animation Loop
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Subtle "Glow" effect
+            //ctx.shadowBlur = 5;
+            ctx.shadowColor = 'black';
+
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].draw();
+                particles[i].update();
+            }
+            requestAnimationFrame(animate);
+        }
+
+        resize();
+        animate();
+    </script>
+</body>
+</html>
