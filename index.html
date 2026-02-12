@@ -63,8 +63,8 @@
             spinX: 0.000225
         };
         const performanceSettings = {
-            minCount: 880,
-            maxCount: 3850
+            minCount: 1320,
+            maxCount: 5775
         };
 
         // --- Pre-rendered particle sprites (one per depth bucket) ---
@@ -134,7 +134,7 @@
 
         function initParticles() {
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const estimated = Math.floor((sphere.radius * sphere.radius) / 109);
+            const estimated = Math.floor((sphere.radius * sphere.radius) / 75);
             const count = Math.min(
                 performanceSettings.maxCount,
                 Math.max(performanceSettings.minCount, estimated)
