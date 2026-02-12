@@ -58,27 +58,13 @@
         const sphere = {
             radius: 0,
             fov: 800,
-            spinY: 0.0028,
-            spinX: 0.0009
+            spinY: 0.0014,
+            spinX: 0.00045
         };
-
-        function rotateY(point, angle) {
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            const x = point.x * cos - point.z * sin;
-            const z = point.x * sin + point.z * cos;
-            point.x = x;
-            point.z = z;
-        }
-
-        function rotateX(point, angle) {
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            const y = point.y * cos - point.z * sin;
-            const z = point.y * sin + point.z * cos;
-            point.y = y;
-            point.z = z;
-        }
+        const performanceSettings = {
+            minCount: 440,
+            maxCount: 3200
+        };
 
         function resize() {
             canvas.width = window.innerWidth;
@@ -116,25 +102,35 @@
                 this.screenY = this.y * this.scale + canvas.height / 2;
             }
 
-            update() {
-                rotateY(this, sphere.spinY);
-                rotateX(this, sphere.spinX);
+            update(rotation) {
+                const x1 = this.x * rotation.cosY - this.z * rotation.sinY;
+                const z1 = this.x * rotation.sinY + this.z * rotation.cosY;
+                this.x = x1;
+                this.z = z1;
+                const y1 = this.y * rotation.cosX - this.z * rotation.sinX;
+                const z2 = this.y * rotation.sinX + this.z * rotation.cosX;
+                this.y = y1;
+                this.z = z2;
 
-                const basePoint = { x: this.baseX, y: this.baseY, z: this.baseZ };
-                rotateY(basePoint, sphere.spinY);
-                rotateX(basePoint, sphere.spinX);
-                this.baseX = basePoint.x;
-                this.baseY = basePoint.y;
-                this.baseZ = basePoint.z;
+                const bx1 = this.baseX * rotation.cosY - this.baseZ * rotation.sinY;
+                const bz1 = this.baseX * rotation.sinY + this.baseZ * rotation.cosY;
+                this.baseX = bx1;
+                this.baseZ = bz1;
+                const by1 = this.baseY * rotation.cosX - this.baseZ * rotation.sinX;
+                const bz2 = this.baseY * rotation.sinX + this.baseZ * rotation.cosX;
+                this.baseY = by1;
+                this.baseZ = bz2;
 
                 this.project();
 
                 if (mouse.x !== null && mouse.y !== null) {
                     const dx = this.screenX - mouse.x;
                     const dy = this.screenY - mouse.y;
-                    const distance = Math.hypot(dx, dy) || 1;
+                    const distanceSq = dx * dx + dy * dy;
+                    const radiusSq = mouse.radius * mouse.radius;
 
-                    if (distance < mouse.radius && this.z > -sphere.radius * 0.25) {
+                    if (distanceSq < radiusSq && this.z < 0) {
+                        const distance = Math.sqrt(distanceSq) || 1;
                         const force = (mouse.radius - distance) / mouse.radius;
                         const forceX = (dx / distance) * force * this.density * 9.5;
                         const forceY = (dy / distance) * force * this.density * 9.5;
@@ -150,7 +146,7 @@
 
             draw() {
                 const depth = (this.z + sphere.radius) / (sphere.radius * 2);
-                const alpha = 0.28 + depth * 0.62;
+                const alpha = 0.4 + depth * 0.58;
                 const radius = this.size * this.scale * 1.75;
                 const hue = 205 + depth * 125;
                 const saturation = 82;
@@ -169,7 +165,11 @@
             particles = [];
 
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const count = Math.max(440, Math.floor((sphere.radius * sphere.radius) / 65));
+            const estimated = Math.floor((sphere.radius * sphere.radius) / 180);
+            const count = Math.min(
+                performanceSettings.maxCount,
+                Math.max(performanceSettings.minCount, estimated)
+            );
 
             for (let i = 0; i < count; i++) {
                 const t = i / (count - 1);
@@ -187,13 +187,19 @@
 
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = 6;
+
+            const rotation = {
+                cosY: Math.cos(sphere.spinY),
+                sinY: Math.sin(sphere.spinY),
+                cosX: Math.cos(sphere.spinX),
+                sinX: Math.sin(sphere.spinX)
+            };
 
             for (let i = 0; i < particles.length; i++) {
-                particles[i].update();
+                particles[i].update(rotation);
             }
 
-            particles.sort((a, b) => a.z - b.z);
             for (let i = 0; i < particles.length; i++) {
                 particles[i].draw();
             }
