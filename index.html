@@ -53,114 +53,151 @@
         const ctx = canvas.getContext('2d');
 
         let particles = [];
-        const mouse = { x: null, y: null, radius: 112.5 }; // Interaction radius
+        const mouse = { x: null, y: null, radius: 120 };
 
-        // 1. Setup Canvas Size
+        const sphere = {
+            radius: 0,
+            fov: 800,
+            spinY: 0.0028,
+            spinX: 0.0009
+        };
+
+        function rotateY(point, angle) {
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const x = point.x * cos - point.z * sin;
+            const z = point.x * sin + point.z * cos;
+            point.x = x;
+            point.z = z;
+        }
+
+        function rotateX(point, angle) {
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const y = point.y * cos - point.z * sin;
+            const z = point.y * sin + point.z * cos;
+            point.y = y;
+            point.z = z;
+        }
+
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
+            sphere.radius = Math.min(canvas.width, canvas.height) * 0.75;
             initParticles();
         }
 
         window.addEventListener('resize', resize);
         window.addEventListener('mousemove', (e) => {
-            mouse.x = e.x;
-            mouse.y = e.y;
-            
-            // Canvas Tilt Effect
-            const centerX = window.innerWidth / 2;
-            const centerY = window.innerHeight / 2;
-            const maxTilt = 6.25; // Maximum tilt in degrees (increased by 25%)
-            
-            // Calculate tilt based on cursor position relative to center
-            // Y-axis rotation follows X position (left/right tilt)
-            // X-axis rotation follows Y position (up/down tilt)
-            const rotateY = ((e.clientX - centerX) / centerX) * maxTilt;
-            const rotateX = -((e.clientY - centerY) / centerY) * maxTilt;
-
-            canvas.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
         });
 
-        // 2. Particle Blueprint
         class Particle {
-            constructor(x, y) {
+            constructor(x, y, z) {
+                this.baseX = x;
+                this.baseY = y;
+                this.baseZ = z;
+
                 this.x = x;
                 this.y = y;
-                this.baseX = x; // The "home" position
-                this.baseY = y;
-                this.size = 0.75; // Uniform size (reduced by 25% from 1)
-                this.density = (Math.random() * 10) + 1; // Lower density for subtle ripple
+                this.z = z;
+
+                this.screenX = 0;
+                this.screenY = 0;
+                this.scale = 1;
+                this.size = 0.65;
+                this.density = (Math.random() * 0.9) + 0.6;
             }
 
-            draw() {
-                // Radial rainbow gradient: hue based on distance from mouse
-                const mx = mouse.x ?? canvas.width / 2;
-                const my = mouse.y ?? canvas.height / 2;
-                const dist = Math.sqrt((mx - this.x) ** 2 + (my - this.y) ** 2);
-                const maxDist = Math.sqrt(canvas.width ** 2 + canvas.height ** 2);
-                const hue = (dist / maxDist) * 360 % 360;
-                //ctx.fillStyle = `hsla(${hue}, 100%, 75%, 0.8)`;
-               // ctx.shadowColor = `hsl(${hue}, 100%, 75%)`;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.closePath();
-                ctx.fill();
+            project() {
+                this.scale = sphere.fov / (sphere.fov + this.z + sphere.radius);
+                this.screenX = this.x * this.scale + canvas.width / 2;
+                this.screenY = this.y * this.scale + canvas.height / 2;
             }
 
             update() {
-                // Calculate distance between mouse and particle
-                let dx = mouse.x - this.x;
-                let dy = mouse.y - this.y;
-                let distance = Math.sqrt(dx * dx + dy * dy);
-                
-                // Pushing logic (Repulsion)
-                if (distance < mouse.radius) {
-                    let forceDirectionX = dx / distance;
-                    let forceDirectionY = dy / distance;
-                    let force = (mouse.radius - distance) / mouse.radius;
-                    let directionX = forceDirectionX * force * this.density;
-                    let directionY = forceDirectionY * force * this.density;
-                    
-                    this.x -= directionX;
-                    this.y -= directionY;
-                } else {
-                    // Return logic (Spring back to home)
-                    if (this.x !== this.baseX) {
-                        let dx = this.x - this.baseX;
-                        this.x -= dx / 25; // Slower, fluid return for ripple effect
-                    }
-                    if (this.y !== this.baseY) {
-                        let dy = this.y - this.baseY;
-                        this.y -= dy / 25;
+                rotateY(this, sphere.spinY);
+                rotateX(this, sphere.spinX);
+
+                const basePoint = { x: this.baseX, y: this.baseY, z: this.baseZ };
+                rotateY(basePoint, sphere.spinY);
+                rotateX(basePoint, sphere.spinX);
+                this.baseX = basePoint.x;
+                this.baseY = basePoint.y;
+                this.baseZ = basePoint.z;
+
+                this.project();
+
+                if (mouse.x !== null && mouse.y !== null) {
+                    const dx = this.screenX - mouse.x;
+                    const dy = this.screenY - mouse.y;
+                    const distance = Math.hypot(dx, dy) || 1;
+
+                    if (distance < mouse.radius && this.z > -sphere.radius * 0.25) {
+                        const force = (mouse.radius - distance) / mouse.radius;
+                        const forceX = (dx / distance) * force * this.density * 9.5;
+                        const forceY = (dy / distance) * force * this.density * 9.5;
+                        this.x += forceX;
+                        this.y += forceY;
                     }
                 }
+
+                this.x += (this.baseX - this.x) * 0.075;
+                this.y += (this.baseY - this.y) * 0.075;
+                this.z += (this.baseZ - this.z) * 0.075;
+            }
+
+            draw() {
+                const depth = (this.z + sphere.radius) / (sphere.radius * 2);
+                const alpha = 0.28 + depth * 0.62;
+                const radius = this.size * this.scale * 1.75;
+                const hue = 205 + depth * 125;
+                const saturation = 82;
+                const lightness = 40 + depth * 28;
+                const glowAlpha = 0.16 + depth * 0.18;
+
+                ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+                ctx.shadowColor = `hsla(${hue}, ${saturation}%, 60%, ${glowAlpha})`;
+                ctx.beginPath();
+                ctx.arc(this.screenX, this.screenY, radius, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
 
-        // 3. Populate System
         function initParticles() {
             particles = [];
-            // Create a grid of particles
-            const spacing = 20; // Uniform spacing
-            for (let y = 0; y < canvas.height; y += spacing) {
-                for (let x = 0; x < canvas.width; x += spacing) {
-                    particles.push(new Particle(x, y));
-                }
+
+            const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+            const count = Math.max(440, Math.floor((sphere.radius * sphere.radius) / 65));
+
+            for (let i = 0; i < count; i++) {
+                const t = i / (count - 1);
+                const y = 1 - (t * 2);
+                const ringRadius = Math.sqrt(1 - y * y);
+                const theta = goldenAngle * i;
+
+                const x = Math.cos(theta) * ringRadius * sphere.radius;
+                const py = y * sphere.radius;
+                const z = Math.sin(theta) * ringRadius * sphere.radius;
+
+                particles.push(new Particle(x, py, z));
             }
         }
 
-        // 4. Animation Loop
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Subtle "Glow" effect
-            //ctx.shadowBlur = 5;
-            ctx.shadowColor = 'black';
+            ctx.shadowBlur = 10;
 
             for (let i = 0; i < particles.length; i++) {
-                particles[i].draw();
                 particles[i].update();
             }
+
+            particles.sort((a, b) => a.z - b.z);
+            for (let i = 0; i < particles.length; i++) {
+                particles[i].draw();
+            }
+
             requestAnimationFrame(animate);
         }
 
