@@ -50,126 +50,104 @@
 
     <script>
         const canvas = document.getElementById('particleCanvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { alpha: false });
 
         let particles = [];
         const mouse = { x: null, y: null, radius: 120 };
+        const mouseRadiusSq = mouse.radius * mouse.radius;
 
         const sphere = {
             radius: 0,
             fov: 800,
-            spinY: 0.0014,
-            spinX: 0.00045
+            spinY: 0.0007,
+            spinX: 0.000225
         };
         const performanceSettings = {
-            minCount: 440,
-            maxCount: 3200
+            minCount: 880,
+            maxCount: 3850
         };
+
+        // --- Pre-rendered particle sprites (one per depth bucket) ---
+        const DEPTH_BUCKETS = 32;
+        const spriteCache = [];
+
+        function buildSpriteCache() {
+            spriteCache.length = 0;
+            for (let i = 0; i < DEPTH_BUCKETS; i++) {
+                const depth = i / (DEPTH_BUCKETS - 1);
+                const hue = 270 + depth * 20;
+                const saturation = 75;
+                const lightness = 18 + depth * 22;
+                const alpha = 0.4 + depth * 0.58;
+
+                // Core dot radius in the sprite (we'll scale via drawImage)
+                const coreR = 4;
+                const glowR = coreR * 3;
+                const size = glowR * 2;
+
+                const offscreen = document.createElement('canvas');
+                offscreen.width = size;
+                offscreen.height = size;
+                const offCtx = offscreen.getContext('2d');
+
+                // Soft glow via radial gradient (replaces expensive shadowBlur)
+                const grad = offCtx.createRadialGradient(glowR, glowR, 0, glowR, glowR, glowR);
+                const glowAlpha = (0.16 + depth * 0.18) * alpha;
+                grad.addColorStop(0, `hsla(${hue}, ${saturation}%, 60%, ${glowAlpha})`);
+                grad.addColorStop(0.35, `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha * 0.6})`);
+                grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
+                offCtx.fillStyle = grad;
+                offCtx.fillRect(0, 0, size, size);
+
+                // Solid core
+                offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+                offCtx.beginPath();
+                offCtx.arc(glowR, glowR, coreR, 0, Math.PI * 2);
+                offCtx.fill();
+
+                spriteCache.push({ canvas: offscreen, half: glowR });
+            }
+        }
 
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             sphere.radius = Math.min(canvas.width, canvas.height) * 0.75;
+            buildSpriteCache();
             initParticles();
         }
 
-        window.addEventListener('resize', resize);
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(resize, 100);
+        });
         window.addEventListener('mousemove', (e) => {
             mouse.x = e.clientX;
             mouse.y = e.clientY;
         });
 
-        class Particle {
-            constructor(x, y, z) {
-                this.baseX = x;
-                this.baseY = y;
-                this.baseZ = z;
-
-                this.x = x;
-                this.y = y;
-                this.z = z;
-
-                this.screenX = 0;
-                this.screenY = 0;
-                this.scale = 1;
-                this.size = 0.65;
-                this.density = (Math.random() * 0.9) + 0.6;
-            }
-
-            project() {
-                this.scale = sphere.fov / (sphere.fov + this.z + sphere.radius);
-                this.screenX = this.x * this.scale + canvas.width / 2;
-                this.screenY = this.y * this.scale + canvas.height / 2;
-            }
-
-            update(rotation) {
-                const x1 = this.x * rotation.cosY - this.z * rotation.sinY;
-                const z1 = this.x * rotation.sinY + this.z * rotation.cosY;
-                this.x = x1;
-                this.z = z1;
-                const y1 = this.y * rotation.cosX - this.z * rotation.sinX;
-                const z2 = this.y * rotation.sinX + this.z * rotation.cosX;
-                this.y = y1;
-                this.z = z2;
-
-                const bx1 = this.baseX * rotation.cosY - this.baseZ * rotation.sinY;
-                const bz1 = this.baseX * rotation.sinY + this.baseZ * rotation.cosY;
-                this.baseX = bx1;
-                this.baseZ = bz1;
-                const by1 = this.baseY * rotation.cosX - this.baseZ * rotation.sinX;
-                const bz2 = this.baseY * rotation.sinX + this.baseZ * rotation.cosX;
-                this.baseY = by1;
-                this.baseZ = bz2;
-
-                this.project();
-
-                if (mouse.x !== null && mouse.y !== null) {
-                    const dx = this.screenX - mouse.x;
-                    const dy = this.screenY - mouse.y;
-                    const distanceSq = dx * dx + dy * dy;
-                    const radiusSq = mouse.radius * mouse.radius;
-
-                    if (distanceSq < radiusSq && this.z < 0) {
-                        const distance = Math.sqrt(distanceSq) || 1;
-                        const force = (mouse.radius - distance) / mouse.radius;
-                        const forceX = (dx / distance) * force * this.density * 9.5;
-                        const forceY = (dy / distance) * force * this.density * 9.5;
-                        this.x += forceX;
-                        this.y += forceY;
-                    }
-                }
-
-                this.x += (this.baseX - this.x) * 0.075;
-                this.y += (this.baseY - this.y) * 0.075;
-                this.z += (this.baseZ - this.z) * 0.075;
-            }
-
-            draw() {
-                const depth = (this.z + sphere.radius) / (sphere.radius * 2);
-                const alpha = 0.4 + depth * 0.58;
-                const radius = this.size * this.scale * 1.75;
-                const hue = 205 + depth * 125;
-                const saturation = 82;
-                const lightness = 40 + depth * 28;
-                const glowAlpha = 0.16 + depth * 0.18;
-
-                ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
-                ctx.shadowColor = `hsla(${hue}, ${saturation}%, 60%, ${glowAlpha})`;
-                ctx.beginPath();
-                ctx.arc(this.screenX, this.screenY, radius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
+        // --- Flat arrays for particle data (better cache locality) ---
+        let pX, pY, pZ, bX, bY, bZ, pDensity;
+        let particleCount = 0;
+        const BASE_SIZE = 0.35;
 
         function initParticles() {
-            particles = [];
-
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const estimated = Math.floor((sphere.radius * sphere.radius) / 180);
+            const estimated = Math.floor((sphere.radius * sphere.radius) / 109);
             const count = Math.min(
                 performanceSettings.maxCount,
                 Math.max(performanceSettings.minCount, estimated)
             );
+            particleCount = count;
+
+            pX = new Float32Array(count);
+            pY = new Float32Array(count);
+            pZ = new Float32Array(count);
+            bX = new Float32Array(count);
+            bY = new Float32Array(count);
+            bZ = new Float32Array(count);
+            pDensity = new Float32Array(count);
 
             for (let i = 0; i < count; i++) {
                 const t = i / (count - 1);
@@ -181,27 +159,104 @@
                 const py = y * sphere.radius;
                 const z = Math.sin(theta) * ringRadius * sphere.radius;
 
-                particles.push(new Particle(x, py, z));
+                pX[i] = bX[i] = x;
+                pY[i] = bY[i] = py;
+                pZ[i] = bZ[i] = z;
+                pDensity[i] = (Math.random() * 0.9) + 0.6;
             }
         }
 
         function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.shadowBlur = 6;
+            const W = canvas.width;
+            const H = canvas.height;
+            const halfW = W * 0.5;
+            const halfH = H * 0.5;
+            const fov = sphere.fov;
+            const sR = sphere.radius;
+            const sR2 = sR * 2;
 
-            const rotation = {
-                cosY: Math.cos(sphere.spinY),
-                sinY: Math.sin(sphere.spinY),
-                cosX: Math.cos(sphere.spinX),
-                sinX: Math.sin(sphere.spinX)
-            };
+            // Clear with background color (alpha:false context, no compositing overhead)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, W, H);
 
-            for (let i = 0; i < particles.length; i++) {
-                particles[i].update(rotation);
-            }
+            const cosY = Math.cos(sphere.spinY);
+            const sinY = Math.sin(sphere.spinY);
+            const cosX = Math.cos(sphere.spinX);
+            const sinX = Math.sin(sphere.spinX);
 
-            for (let i = 0; i < particles.length; i++) {
-                particles[i].draw();
+            const hasMouse = mouse.x !== null && mouse.y !== null;
+            const mx = mouse.x;
+            const my = mouse.y;
+            const mRSq = mouseRadiusSq;
+            const mR = mouse.radius;
+
+            const n = particleCount;
+
+            for (let i = 0; i < n; i++) {
+                // --- Rotate current position ---
+                let x = pX[i], y = pY[i], z = pZ[i];
+                let x1 = x * cosY - z * sinY;
+                let z1 = x * sinY + z * cosY;
+                let y1 = y * cosX - z1 * sinX;
+                let z2 = y * sinX + z1 * cosX;
+                x = x1; y = y1; z = z2;
+
+                // --- Rotate base position ---
+                let bx = bX[i], by = bY[i], bz = bZ[i];
+                let bx1 = bx * cosY - bz * sinY;
+                let bz1 = bx * sinY + bz * cosY;
+                let by1 = by * cosX - bz1 * sinX;
+                let bz2 = by * sinX + bz1 * cosX;
+                bX[i] = bx1; bY[i] = by1; bZ[i] = bz2;
+
+                // --- Project to screen ---
+                const scale = fov / (fov + z + sR);
+                const screenX = x * scale + halfW;
+                const screenY = y * scale + halfH;
+
+                // --- Mouse interaction ---
+                if (hasMouse) {
+                    const dx = screenX - mx;
+                    const dy = screenY - my;
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < mRSq && z < 0) {
+                        const dist = Math.sqrt(distSq) || 1;
+                        const force = (mR - dist) / mR;
+                        const d = pDensity[i];
+                        x += (dx / dist) * force * d * 9.5;
+                        y += (dy / dist) * force * d * 9.5;
+                    }
+                }
+
+                // --- Spring back ---
+                pX[i] = x + (bx1 - x) * 0.075;
+                pY[i] = y + (by1 - y) * 0.075;
+                pZ[i] = z + (bz2 - z) * 0.075;
+
+                // --- Cull off-screen particles ---
+                const drawSize = BASE_SIZE * scale * 1.75 * 3; // includes glow radius
+                if (screenX < -drawSize || screenX > W + drawSize ||
+                    screenY < -drawSize || screenY > H + drawSize) {
+                    continue;
+                }
+
+                // --- Draw using pre-rendered sprite ---
+                const depth = (z + sR) / sR2;
+                const bucket = (depth * (DEPTH_BUCKETS - 1) + 0.5) | 0; // fast round + clamp
+                const sprite = spriteCache[bucket < 0 ? 0 : bucket >= DEPTH_BUCKETS ? DEPTH_BUCKETS - 1 : bucket];
+
+                const radius = BASE_SIZE * scale * 1.75;
+                const spriteScale = radius / 4; // 4 = coreR used when building sprite
+                const drawW = sprite.canvas.width * spriteScale;
+                const drawH = sprite.canvas.height * spriteScale;
+
+                ctx.drawImage(
+                    sprite.canvas,
+                    (screenX - drawW * 0.5 + 0.5) | 0,
+                    (screenY - drawH * 0.5 + 0.5) | 0,
+                    (drawW + 0.5) | 0,
+                    (drawH + 0.5) | 0
+                );
             }
 
             requestAnimationFrame(animate);
