@@ -82,11 +82,11 @@
                     const hue = 250 + depth * 42 + phaseT * 120;
                     const saturation = 82 + depth * 10;
                     const lightness = 20 + depth * 24;
-                    const alpha = 0.42 + depth * 0.56;
+                    const alpha = .7 + depth * .1;
 
                     // Core dot radius in the sprite (we'll scale via drawImage)
                     const coreR = 4;
-                    const glowR = coreR * 3;
+                    const glowR = coreR * 2.5;
                     const size = glowR * 2;
 
                     const offscreen = document.createElement('canvas');
@@ -118,7 +118,7 @@
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            sphere.radius = Math.min(canvas.width, canvas.height) * 0.75;
+            sphere.radius = Math.min(canvas.width, canvas.height) * 0.68;
             buildSpriteCache();
             initParticles();
         }
@@ -136,7 +136,7 @@
         // --- Flat arrays for particle data (better cache locality) ---
         let pX, pY, pZ, bX, bY, bZ, pDensity;
         let particleCount = 0;
-        const BASE_SIZE = 0.35;
+        const BASE_SIZE = 0.30;
         const surfaceEffect = {
             bulge: 0.028,
             ripple: 0.022,
