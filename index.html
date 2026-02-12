@@ -69,43 +69,49 @@
 
         // --- Pre-rendered particle sprites (one per depth bucket) ---
         const DEPTH_BUCKETS = 32;
+        const IRIDESCENT_PHASES = 12;
         const spriteCache = [];
 
         function buildSpriteCache() {
             spriteCache.length = 0;
-            for (let i = 0; i < DEPTH_BUCKETS; i++) {
-                const depth = i / (DEPTH_BUCKETS - 1);
-                const hue = 270 + depth * 20;
-                const saturation = 75;
-                const lightness = 18 + depth * 22;
-                const alpha = 0.4 + depth * 0.58;
+            for (let phase = 0; phase < IRIDESCENT_PHASES; phase++) {
+                const phaseSprites = [];
+                const phaseT = phase / IRIDESCENT_PHASES;
+                for (let i = 0; i < DEPTH_BUCKETS; i++) {
+                    const depth = i / (DEPTH_BUCKETS - 1);
+                    const hue = 250 + depth * 42 + phaseT * 120;
+                    const saturation = 82 + depth * 10;
+                    const lightness = 20 + depth * 24;
+                    const alpha = 0.42 + depth * 0.56;
 
-                // Core dot radius in the sprite (we'll scale via drawImage)
-                const coreR = 4;
-                const glowR = coreR * 3;
-                const size = glowR * 2;
+                    // Core dot radius in the sprite (we'll scale via drawImage)
+                    const coreR = 4;
+                    const glowR = coreR * 3;
+                    const size = glowR * 2;
 
-                const offscreen = document.createElement('canvas');
-                offscreen.width = size;
-                offscreen.height = size;
-                const offCtx = offscreen.getContext('2d');
+                    const offscreen = document.createElement('canvas');
+                    offscreen.width = size;
+                    offscreen.height = size;
+                    const offCtx = offscreen.getContext('2d');
 
-                // Soft glow via radial gradient (replaces expensive shadowBlur)
-                const grad = offCtx.createRadialGradient(glowR, glowR, 0, glowR, glowR, glowR);
-                const glowAlpha = (0.16 + depth * 0.18) * alpha;
-                grad.addColorStop(0, `hsla(${hue}, ${saturation}%, 60%, ${glowAlpha})`);
-                grad.addColorStop(0.35, `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha * 0.6})`);
-                grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
-                offCtx.fillStyle = grad;
-                offCtx.fillRect(0, 0, size, size);
+                    // Soft glow via radial gradient (replaces expensive shadowBlur)
+                    const grad = offCtx.createRadialGradient(glowR, glowR, 0, glowR, glowR, glowR);
+                    const glowAlpha = (0.17 + depth * 0.2) * alpha;
+                    grad.addColorStop(0, `hsla(${hue}, ${saturation}%, 68%, ${glowAlpha})`);
+                    grad.addColorStop(0.35, `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha * 0.62})`);
+                    grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
+                    offCtx.fillStyle = grad;
+                    offCtx.fillRect(0, 0, size, size);
 
-                // Solid core
-                offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
-                offCtx.beginPath();
-                offCtx.arc(glowR, glowR, coreR, 0, Math.PI * 2);
-                offCtx.fill();
+                    // Solid core
+                    offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+                    offCtx.beginPath();
+                    offCtx.arc(glowR, glowR, coreR, 0, Math.PI * 2);
+                    offCtx.fill();
 
-                spriteCache.push({ canvas: offscreen, half: glowR });
+                    phaseSprites.push({ canvas: offscreen, half: glowR });
+                }
+                spriteCache.push(phaseSprites);
             }
         }
 
@@ -131,6 +137,13 @@
         let pX, pY, pZ, bX, bY, bZ, pDensity;
         let particleCount = 0;
         const BASE_SIZE = 0.35;
+        const surfaceEffect = {
+            bulge: 0.028,
+            ripple: 0.022,
+            frequency: 9.5,
+            speed: 1.35,
+            twist: 2.2
+        };
 
         function initParticles() {
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
@@ -174,6 +187,7 @@
             const fov = sphere.fov;
             const sR = sphere.radius;
             const sR2 = sR * 2;
+            const timeSec = performance.now() * 0.001;
 
             // Clear with background color (alpha:false context, no compositing overhead)
             ctx.fillStyle = '#ffffff';
@@ -209,6 +223,26 @@
                 let bz2 = by * sinX + bz1 * cosX;
                 bX[i] = bx1; bY[i] = by1; bZ[i] = bz2;
 
+                // Subtle breathing bulge + traveling ripple on sphere surface
+                const baseLenSq = (bx1 * bx1) + (by1 * by1) + (bz2 * bz2);
+                const invBaseLen = baseLenSq > 0 ? 1 / Math.sqrt(baseLenSq) : 1;
+                const lat = by1 / sR;
+                const lon = Math.atan2(bz2, bx1);
+                const rippleWave = Math.sin(
+                    (lat * surfaceEffect.frequency) +
+                    (lon * surfaceEffect.twist) -
+                    (timeSec * surfaceEffect.speed)
+                );
+                const radialScale = 1 + surfaceEffect.bulge + (rippleWave * surfaceEffect.ripple);
+                const tx = bx1 * radialScale;
+                const ty = by1 * radialScale;
+                const tz = bz2 * radialScale;
+
+                // Nudge current particle toward the animated surface target
+                x += (tx - x) * (0.18 * invBaseLen * sR);
+                y += (ty - y) * (0.18 * invBaseLen * sR);
+                z += (tz - z) * (0.18 * invBaseLen * sR);
+
                 // --- Project to screen ---
                 const scale = fov / (fov + z + sR);
                 const screenX = x * scale + halfW;
@@ -229,9 +263,9 @@
                 }
 
                 // --- Spring back ---
-                pX[i] = x + (bx1 - x) * 0.075;
-                pY[i] = y + (by1 - y) * 0.075;
-                pZ[i] = z + (bz2 - z) * 0.075;
+                pX[i] = x + (tx - x) * 0.075;
+                pY[i] = y + (ty - y) * 0.075;
+                pZ[i] = z + (tz - z) * 0.075;
 
                 // --- Cull off-screen particles ---
                 const drawSize = BASE_SIZE * scale * 1.75 * 3; // includes glow radius
@@ -243,7 +277,10 @@
                 // --- Draw using pre-rendered sprite ---
                 const depth = (z + sR) / sR2;
                 const bucket = (depth * (DEPTH_BUCKETS - 1) + 0.5) | 0; // fast round + clamp
-                const sprite = spriteCache[bucket < 0 ? 0 : bucket >= DEPTH_BUCKETS ? DEPTH_BUCKETS - 1 : bucket];
+                const clampedBucket = bucket < 0 ? 0 : bucket >= DEPTH_BUCKETS ? DEPTH_BUCKETS - 1 : bucket;
+                const phaseBase = ((timeSec * 1.75) + (lat * 2.4) + (lon * 0.75)) * IRIDESCENT_PHASES;
+                const phaseIdx = ((phaseBase | 0) % IRIDESCENT_PHASES + IRIDESCENT_PHASES) % IRIDESCENT_PHASES;
+                const sprite = spriteCache[phaseIdx][clampedBucket];
 
                 const radius = BASE_SIZE * scale * 1.75;
                 const spriteScale = radius / 4; // 4 = coreR used when building sprite
