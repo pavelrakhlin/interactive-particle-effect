@@ -63,14 +63,13 @@
             spinX: 0.000225
         };
         const performanceSettings = {
-            minCount: 3000,
-            maxCount: 4000
+            minCount: 1320,
+            maxCount: 5775
         };
 
         // --- Pre-rendered particle sprites (one per depth bucket) ---
         const DEPTH_BUCKETS = 32;
         const IRIDESCENT_PHASES = 12;
-        const PYRAMID_HALF = 4;
         const spriteCache = [];
 
         function buildSpriteCache() {
@@ -82,62 +81,35 @@
                     const depth = i / (DEPTH_BUCKETS - 1);
                     const hue = 250 + depth * 42 + phaseT * 120;
                     const saturation = 82 + depth * 10;
-                    const lightness = 20 + depth * 24;
-                    const alpha = .7 + depth * .1;
+                    const lightness = 8 + depth * 12;
+                    const alpha = 0.55 + depth * 0.08;
 
-                    // Base pyramid dimensions (diamond silhouette)
-                    const pyramidHalf = PYRAMID_HALF;
-                    const glowPad = pyramidHalf * 2;
-                    const half = pyramidHalf + glowPad;
-                    const size = Math.ceil(half * 2);
-                    const cx = half;
-                    const cy = half;
+                    // Core dot radius in the sprite (we'll scale via drawImage)
+                    const coreR = 4;
+                    const glowR = coreR * 2.5;
+                    const size = glowR * 2;
 
                     const offscreen = document.createElement('canvas');
                     offscreen.width = size;
                     offscreen.height = size;
                     const offCtx = offscreen.getContext('2d');
 
-                    // Soft glow envelope
-                    const grad = offCtx.createRadialGradient(cx, cy, pyramidHalf * 0.2, cx, cy, half);
+                    // Soft glow via radial gradient (replaces expensive shadowBlur)
+                    const grad = offCtx.createRadialGradient(glowR, glowR, 0, glowR, glowR, glowR);
                     const glowAlpha = (0.17 + depth * 0.2) * alpha;
-                    grad.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness + 20}%, ${glowAlpha})`);
-                    grad.addColorStop(0.55, `hsla(${hue}, ${saturation}%, ${lightness + 10}%, ${glowAlpha * 0.55})`);
-                    grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness + 4}%, 0)`);
+                    grad.addColorStop(0, `hsla(${hue}, ${saturation}%, 34%, ${glowAlpha})`);
+                    grad.addColorStop(0.35, `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha * 0.62})`);
+                    grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
                     offCtx.fillStyle = grad;
+                    offCtx.fillRect(0, 0, size, size);
+
+                    // Solid core
+                    offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
                     offCtx.beginPath();
-                    offCtx.arc(cx, cy, half, 0, Math.PI * 2);
+                    offCtx.arc(glowR, glowR, coreR, 0, Math.PI * 2);
                     offCtx.fill();
 
-                    // Four triangular faces of a square pyramid
-                    const top = { x: cx, y: cy - pyramidHalf };
-                    const right = { x: cx + pyramidHalf, y: cy };
-                    const bottom = { x: cx, y: cy + pyramidHalf };
-                    const left = { x: cx - pyramidHalf, y: cy };
-
-                    const faceLightness = [
-                        lightness + 10, // top face highlight
-                        lightness + 2,  // right face
-                        lightness - 6,  // bottom face shadow
-                        lightness - 1   // left face
-                    ];
-
-                    function fillFace(a, b, l) {
-                        offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${l}%, ${alpha})`;
-                        offCtx.beginPath();
-                        offCtx.moveTo(cx, cy);
-                        offCtx.lineTo(a.x, a.y);
-                        offCtx.lineTo(b.x, b.y);
-                        offCtx.closePath();
-                        offCtx.fill();
-                    }
-
-                    fillFace(top, right, faceLightness[0]);
-                    fillFace(right, bottom, faceLightness[1]);
-                    fillFace(bottom, left, faceLightness[2]);
-                    fillFace(left, top, faceLightness[3]);
-
-                    phaseSprites.push({ canvas: offscreen, halfW: half, halfH: half });
+                    phaseSprites.push({ canvas: offscreen, half: glowR });
                 }
                 spriteCache.push(phaseSprites);
             }
@@ -175,7 +147,7 @@
 
         function initParticles() {
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const estimated = Math.floor((sphere.radius * sphere.radius) / 100);
+            const estimated = Math.floor((sphere.radius * sphere.radius) / 75);
             const count = Math.min(
                 performanceSettings.maxCount,
                 Math.max(performanceSettings.minCount, estimated)
@@ -285,8 +257,8 @@
                         const dist = Math.sqrt(distSq) || 1;
                         const force = (mR - dist) / mR;
                         const d = pDensity[i];
-                        x += (dx / dist) * force * d * 10.45;
-                        y += (dy / dist) * force * d * 10.45;
+                        x += (dx / dist) * force * d * 10;
+                        y += (dy / dist) * force * d * 10;
                     }
                 }
 
@@ -296,7 +268,7 @@
                 pZ[i] = z + (tz - z) * 0.075;
 
                 // --- Cull off-screen particles ---
-                const drawSize = BASE_SIZE * scale * 1.75 * 3.2; // includes pyramid glow envelope
+                const drawSize = BASE_SIZE * scale * 1.75 * 3; // includes glow radius
                 if (screenX < -drawSize || screenX > W + drawSize ||
                     screenY < -drawSize || screenY > H + drawSize) {
                     continue;
@@ -311,24 +283,17 @@
                 const sprite = spriteCache[phaseIdx][clampedBucket];
 
                 const radius = BASE_SIZE * scale * 1.75;
-                const spriteScale = radius / PYRAMID_HALF;
+                const spriteScale = radius / 4; // 4 = coreR used when building sprite
                 const drawW = sprite.canvas.width * spriteScale;
                 const drawH = sprite.canvas.height * spriteScale;
-                const centerDx = halfW - screenX;
-                const centerDy = halfH - screenY;
-                const angleToCenter = Math.atan2(centerDy, centerDx);
 
-                ctx.save();
-                ctx.translate(screenX, screenY);
-                ctx.rotate(angleToCenter);
                 ctx.drawImage(
                     sprite.canvas,
-                    -drawW * 0.5,
-                    -drawH * 0.5,
-                    drawW,
-                    drawH
+                    (screenX - drawW * 0.5 + 0.5) | 0,
+                    (screenY - drawH * 0.5 + 0.5) | 0,
+                    (drawW + 0.5) | 0,
+                    (drawH + 0.5) | 0
                 );
-                ctx.restore();
             }
 
             requestAnimationFrame(animate);
