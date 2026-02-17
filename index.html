@@ -63,13 +63,15 @@
             spinX: 0.000225
         };
         const performanceSettings = {
-            minCount: 1320,
-            maxCount: 5775
+            minCount: 100,
+            maxCount: 4000
         };
 
         // --- Pre-rendered particle sprites (one per depth bucket) ---
         const DEPTH_BUCKETS = 32;
         const IRIDESCENT_PHASES = 12;
+        const PILL_CORE_HALF_H = 3;
+        const PILL_ASPECT = 4;
         const spriteCache = [];
 
         function buildSpriteCache() {
@@ -80,36 +82,55 @@
                 for (let i = 0; i < DEPTH_BUCKETS; i++) {
                     const depth = i / (DEPTH_BUCKETS - 1);
                     const hue = 250 + depth * 42 + phaseT * 120;
-                    const saturation = 82 + depth * 10;
+                    const saturation = 100 + depth * 8;
                     const lightness = 20 + depth * 24;
                     const alpha = .7 + depth * .1;
 
-                    // Core dot radius in the sprite (we'll scale via drawImage)
-                    const coreR = 4;
-                    const glowR = coreR * 2.5;
-                    const size = glowR * 2;
+                    // Base pill dimensions (sprite is drawn horizontal; we rotate at render-time)
+                    const coreHalfH = PILL_CORE_HALF_H;
+                    const coreHalfW = coreHalfH * PILL_ASPECT;
+                    const glowPad = coreHalfH * 1.9;
+                    const halfW = coreHalfW + glowPad;
+                    const halfH = coreHalfH + glowPad;
+                    const sizeW = Math.ceil(halfW * 2);
+                    const sizeH = Math.ceil(halfH * 2);
+                    const cx = halfW;
+                    const cy = halfH;
 
                     const offscreen = document.createElement('canvas');
-                    offscreen.width = size;
-                    offscreen.height = size;
+                    offscreen.width = sizeW;
+                    offscreen.height = sizeH;
                     const offCtx = offscreen.getContext('2d');
 
-                    // Soft glow via radial gradient (replaces expensive shadowBlur)
-                    const grad = offCtx.createRadialGradient(glowR, glowR, 0, glowR, glowR, glowR);
+                    // Soft pill glow
+                    const grad = offCtx.createLinearGradient(cx - halfW, cy, cx + halfW, cy);
                     const glowAlpha = (0.17 + depth * 0.2) * alpha;
-                    grad.addColorStop(0, `hsla(${hue}, ${saturation}%, 68%, ${glowAlpha})`);
-                    grad.addColorStop(0.35, `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha * 0.62})`);
-                    grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness}%, 0)`);
-                    offCtx.fillStyle = grad;
-                    offCtx.fillRect(0, 0, size, size);
-
-                    // Solid core
-                    offCtx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+                    grad.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness + 10}%, 0)`);
+                    grad.addColorStop(0.15, `hsla(${hue}, ${saturation}%, ${lightness + 12}%, ${glowAlpha * 0.7})`);
+                    grad.addColorStop(0.5, `hsla(${hue}, ${saturation}%, ${lightness + 18}%, ${glowAlpha})`);
+                    grad.addColorStop(0.85, `hsla(${hue}, ${saturation}%, ${lightness + 12}%, ${glowAlpha * 0.7})`);
+                    grad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness + 10}%, 0)`);
+                    offCtx.strokeStyle = grad;
+                    offCtx.lineWidth = coreHalfH * 2 + glowPad * 1.4;
+                    offCtx.lineCap = 'round';
                     offCtx.beginPath();
-                    offCtx.arc(glowR, glowR, coreR, 0, Math.PI * 2);
-                    offCtx.fill();
+                    offCtx.moveTo(cx - coreHalfW, cy);
+                    offCtx.lineTo(cx + coreHalfW, cy);
+                    offCtx.stroke();
 
-                    phaseSprites.push({ canvas: offscreen, half: glowR });
+                    // Solid pill core
+                    const coreGrad = offCtx.createLinearGradient(cx - coreHalfW, cy, cx + coreHalfW, cy);
+                    coreGrad.addColorStop(0, `hsla(${hue}, ${saturation}%, ${lightness - 2}%, ${alpha * 0.9})`);
+                    coreGrad.addColorStop(0.5, `hsla(${hue}, ${saturation}%, ${lightness + 6}%, ${alpha})`);
+                    coreGrad.addColorStop(1, `hsla(${hue}, ${saturation}%, ${lightness - 2}%, ${alpha * 0.9})`);
+                    offCtx.strokeStyle = coreGrad;
+                    offCtx.lineWidth = coreHalfH * 2;
+                    offCtx.beginPath();
+                    offCtx.moveTo(cx - coreHalfW, cy);
+                    offCtx.lineTo(cx + coreHalfW, cy);
+                    offCtx.stroke();
+
+                    phaseSprites.push({ canvas: offscreen, halfW, halfH });
                 }
                 spriteCache.push(phaseSprites);
             }
@@ -147,7 +168,7 @@
 
         function initParticles() {
             const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const estimated = Math.floor((sphere.radius * sphere.radius) / 75);
+            const estimated = Math.floor((sphere.radius * sphere.radius) / 100);
             const count = Math.min(
                 performanceSettings.maxCount,
                 Math.max(performanceSettings.minCount, estimated)
@@ -257,8 +278,8 @@
                         const dist = Math.sqrt(distSq) || 1;
                         const force = (mR - dist) / mR;
                         const d = pDensity[i];
-                        x += (dx / dist) * force * d * 9.5;
-                        y += (dy / dist) * force * d * 9.5;
+                        x += (dx / dist) * force * d * 10.45;
+                        y += (dy / dist) * force * d * 10.45;
                     }
                 }
 
@@ -268,7 +289,7 @@
                 pZ[i] = z + (tz - z) * 0.075;
 
                 // --- Cull off-screen particles ---
-                const drawSize = BASE_SIZE * scale * 1.75 * 3; // includes glow radius
+                const drawSize = BASE_SIZE * scale * 1.75 * 4.2; // includes pill glow envelope
                 if (screenX < -drawSize || screenX > W + drawSize ||
                     screenY < -drawSize || screenY > H + drawSize) {
                     continue;
@@ -283,17 +304,24 @@
                 const sprite = spriteCache[phaseIdx][clampedBucket];
 
                 const radius = BASE_SIZE * scale * 1.75;
-                const spriteScale = radius / 4; // 4 = coreR used when building sprite
+                const spriteScale = radius / PILL_CORE_HALF_H;
                 const drawW = sprite.canvas.width * spriteScale;
                 const drawH = sprite.canvas.height * spriteScale;
+                const centerDx = halfW - screenX;
+                const centerDy = halfH - screenY;
+                const angleToCenter = Math.atan2(centerDy, centerDx);
 
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.rotate(angleToCenter);
                 ctx.drawImage(
                     sprite.canvas,
-                    (screenX - drawW * 0.5 + 0.5) | 0,
-                    (screenY - drawH * 0.5 + 0.5) | 0,
-                    (drawW + 0.5) | 0,
-                    (drawH + 0.5) | 0
+                    -drawW * 0.5,
+                    -drawH * 0.5,
+                    drawW,
+                    drawH
                 );
+                ctx.restore();
             }
 
             requestAnimationFrame(animate);
